@@ -1,0 +1,92 @@
+---
+title: "one-piece-data"
+author: "John Esparragoza"
+date: "2026-04-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Libraries
+
+```{r}
+library(httr)
+library(jsonlite)
+library(dplyr)
+library(tidyverse)
+```
+
+
+## loading up the One piece API
+
+```{r}
+# devil fruits
+characters_url <- "https://api.api-onepiece.com/v2/characters/en"
+
+characters <- fromJSON(characters_url)
+
+characters_df <- as.data.frame(characters)
+
+glimpse(characters_df)
+
+#locations
+locations_url <- "https://api.api-onepiece.com/v2/locates/en"
+
+locations <- fromJSON(locations_url)
+
+locations_df <- as.data.frame(locations)
+
+glimpse(locations_df)
+```
+## Description:
+This specific dataframe (characters) has most (if not all) the characters from the famous Manga/Anime series
+"One Piece". It includes the characters name (ofc) along with their age, size, bounty (in berries), as well what
+crew the characters are a part of, & even if they have a devil fruit (as well as what kind with a description).
+The dataset is extremely detailed and I am excited to work on it!
+
+## 2 Questions:
+- What percentage of the characters have a devil fruit?
+- What characters have the highest bounties?
+
+## Plots
+
+```{r}
+# characters ages
+characters_clean <- characters_df %>%
+  unnest_wider(crew, names_sep = ".") %>% 
+  mutate(
+    age = str_remove(age, " ans"),   # remove the text
+    age = as.numeric(age)            # convert to numeric
+  )
+
+characters_clean %>%
+  filter(!is.na(age)) %>%
+  ggplot(aes(x = age)) +
+  geom_histogram(binwidth = 5, fill = "steelblue", color = "white") +
+  labs(
+    title = "Distribution of Character Ages",
+    x = "Age",
+    y = "Count"
+  )
+
+# east blue vs north blue
+blue_counts <- locations_df %>%
+  filter(sea_name %in% c("East Blue", "North Blue")) %>%
+  count(sea_name)
+
+
+ggplot(blue_counts, aes(x = sea_name, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Number of Islands: East Blue vs North Blue",
+    x = "Sea",
+    y = "Number of Islands"
+  )
+
+```
+
+
+
+

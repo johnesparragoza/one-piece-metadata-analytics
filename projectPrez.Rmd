@@ -1,0 +1,841 @@
+---
+title: "The One Piece: Dataset"
+author: "Jezel V., John E., Shelby T."
+output: ioslides_presentation
+date: "2026-04-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Project Overview:
+
+```{r, echo=FALSE, out.width="70%", fig.align="center"}
+knitr::include_graphics("https://logos-world.net/wp-content/uploads/2021/09/One-Piece-Logo-1999.png")
+```
+
+-   Exploring patterns in the One Piece world
+-   Focusing on bounties, characters, Devil Fruits, Islands, and episodes.
+
+## Introduction
+
+-   One piece is a long running anime (1999) and manga series
+-   The world full of pirates, crews, bounties, and adventures
+-   Using data science to explore and uncover patterns in this universe.
+
+## Background Information
+
+One piece is a long time running (1999) anime/ manga about pirates looking for the One Piece, the greatest treasure in the world.
+
+The show follows the Strawhat Crew, with the main character being Monkey D. Luffy, along with his friends including Zoro, Sanji, Nami, Brook, Robin, Jinbe, & Chopper.
+
+One Piece is essentially about pirate crews exploring different regions and competing for power, fame, and treasure. (And for Luffy to make friends along the way)
+
+## What is a "Crew"?
+
+A crew is a team of pirates Each crew has: 
+- Captain (Leader of the group) 
+- Members with roles (Navigator, Doctor, etc.)
+
+## What is a "Bounty"?
+
+-   A bounty is a price put on the head of certain individuals, typically pirates.
+-   the higher the bounty, the more dangerous the world government identifies you as
+
+## What is a "Devil Fruit"?
+
+-   A devil fruit is a magical fruit in the One Piece universe.
+-   grant specific powers to the individual
+-   each fruit has a different power
+-   The catch?
+
+## Tidying Data
+
+-   Lots of cleaning up
+-   Some things were in french...
+-   nested dataframes
+-   and yea
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# Data cleaning
+
+library(jsonlite)
+library(tidyverse)
+
+## Character(s) Data 
+url1 <- "https://api.api-onepiece.com/v2/characters/en"
+characters <- fromJSON(url1)
+characters_df <- as.data.frame(characters)
+
+
+## Locations Data
+url2 <- "https://api.api-onepiece.com/v2/locates/en"
+locations <- fromJSON(url2)
+locations_df <- as.data.frame(locations)
+
+
+## Episodes Data 
+url3 <- "https://api.api-onepiece.com/v2/episodes/en"
+episodes <- fromJSON(url3)
+episodes_df <- as.data.frame(episodes)
+
+# crews data
+url4 <- "https://api.api-onepiece.com/v2/crews/en"
+crews <- fromJSON(url4)
+crews_df <- as.data.frame(crews)
+
+# devil fruit data
+url5 <- "https://api.api-onepiece.com/v2/fruits/en"
+fruits <- fromJSON(url5)
+fruits_df <- as.data.frame(fruits)
+```
+
+```{r include=FALSE}
+# data cleaning
+
+# converted some data types from string to numeric
+characters_df <- characters_df %>%
+  mutate(bounty = as.numeric(str_remove_all(bounty, "\\.")), 
+         age = as.numeric(str_remove_all(age, "ans")),
+         size = as.numeric(str_remove_all(size, "cm")))
+
+# removed columns from both dataframes
+# re-rerun every new session (can only be ran once since it gives error a second time)
+crews_df <- crews_df %>% 
+  select(-description)
+
+crews_df <- crews_df %>% 
+  select(-roman_name)
+
+characters_df
+crews_df
+
+```
+
+> Join characters with crew df
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# data cleaning
+
+# crew df inside characters df
+crew_full_df <- as.data.frame(characters_df$crew)
+
+# converting data types
+crew_full_df <- crew_full_df %>%
+  mutate(
+    total_prime = as.numeric(str_remove_all(total_prime, "\\.")),
+    number = as.numeric(str_remove_all(number, "\\."))
+  ) 
+
+# removed the crew & joined the actual crew df
+characters_with_crews <- bind_cols(
+  characters_df %>% select(-crew),
+  crew_full_df %>% rename(
+    crew_id = id,
+    crew_name = name,
+    crew_status = status,
+    crew_number = number,
+    crew_total_prime = total_prime)) %>% 
+    select(-description, -roman_name)
+
+# translating some crew names from french to english
+characters_with_crews <- characters_with_crews %>%
+  mutate(
+    crew_name = case_when(
+      crew_name == "The Chapeau de Paille crew" ~ "Straw Hat Pirates",
+      crew_name == "Armarda du Chapeau de Paille" ~ "Straw Hat Grand Fleet",
+      crew_name == "Baggy's Delivery" ~ "Buggy's Delivery",
+      crew_name == "Le Roux crew" ~ "Red Hair Pirates",
+      TRUE ~ crew_name
+    )
+  )
+
+# ignore this just use full_character_df
+```
+
+Devil Fruit joined with the rest of the DF
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# data merging + cleaning
+
+# fruits df column
+dev_fruit_df <- as.data.frame(characters_with_crews$fruit) %>%
+  select(-roman_name, -filename, -technicalFile)   # removing unwanted columns
+
+# merging table
+full_character_df <- bind_cols(
+  characters_with_crews %>% select(-fruit),
+  dev_fruit_df %>%
+    rename(devil_fruit = name) %>%
+    select(-id)
+)
+
+full_character_df
+```
+
+
+# Bounty 
+
+## What influences Bounty?
+In One Piece, the more chaos you cause, the higher the bounty on your head is. The bounties reflect how dangerous each pirate is.
+
+## Does Age Influence Bounty?
+```{r echo=FALSE}
+full_character_df %>%
+  filter(!is.na(bounty), !is.na(age)) %>%
+  group_by(age) %>%
+  summarise(mean_bounty = mean(bounty)) %>%
+  ggplot(aes(x = age, y = mean_bounty)) +
+  geom_line(color = "deeppink", linewidth = 1) +
+  geom_point(color = "blue") +
+  labs(
+    title = "Average Bounty by Age",
+    x = "Age",
+    y = "Mean Bounty"
+  ) +
+  theme_get()
+```
+
+## How Many Characters Have a Bounty?
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# computation
+library(gt)
+
+full_character_df %>%
+  summarise(
+    total = n(),
+    with_bounty = sum(!is.na(bounty)),
+    without_bounty = sum(is.na(bounty)),
+    pct_with_bounty = mean(!is.na(bounty)) * 100
+  ) %>%
+  mutate(pct_with_bounty = paste0(round(pct_with_bounty, 1), "%")) %>%
+  gt() %>%
+  tab_header(
+    title = "Bounty Summary"
+  )
+
+# visualization
+full_character_df %>%
+  mutate(has_bounty = if_else(is.na(bounty), "No", "Yes")) %>%
+  count(has_bounty) %>%
+  ggplot(aes(x = has_bounty, y = n, fill = has_bounty)) +
+  geom_col(binwidth = 2) +
+  scale_fill_manual(
+    values = c(
+      "Yes" = "darkcyan",   # characters WITH bounty
+      "No"  = "deeppink"      # characters WITHOUT bounty
+    )
+  ) +
+  geom_text(aes(label = n), vjust = -0.3)+
+  labs(
+    title = "How Many Characters Have a Bounty?",
+    x = "Has Bounty",
+    y = "Count"
+  )
+```
+
+
+## Average Bounty Overall?
+```{r message=FALSE, warning=FALSE}
+full_character_df %>%
+  summarise(
+    avg_bounty = mean(bounty, na.rm = T)
+  )
+```
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+# had to count big moms crew since it didnt have it in crew_number
+big_mom_count <- full_character_df %>%
+  filter(crew_name == "Big Mom's crew") %>%
+  summarise(n_members = n_distinct(name))
+
+big_mom_count
+
+full_character_df <- full_character_df %>%
+  mutate(
+    crew_number = ifelse(
+      crew_name == "Big Mom's crew" & is.na(crew_number),
+      big_mom_count$n_members,
+      crew_number
+    )
+  )
+
+```
+
+
+## Top Crews by Bounty?
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# table
+crews_high_bounty <- full_character_df %>%
+  select(crew_name, crew_total_prime) %>%
+  distinct() %>%
+  slice_max(order_by = crew_total_prime, n = 5)
+crews_high_bounty
+```
+
+
+## Crew Bounty (plot)
+```{r}
+#plot
+crews_high_bounty %>%
+  ggplot(aes(x = crew_total_prime / 1e6,
+             y = reorder(crew_name, crew_total_prime))) +
+  geom_point(size = 5, color = "darkcyan") +
+  geom_text(aes(label = round(crew_total_prime / 1e6, 1)),
+            hjust = -0.3, size = 4, color = "black") +
+  labs(
+    title = "Top 5 Crews by Total Bounty",
+    x = "Total Bounty (Millions of Berries)",
+    y = "Crew"
+  ) +
+  xlim(0, max(crews_high_bounty$crew_total_prime / 1e6) * 1.15)
+```
+
+
+## Bubble Plot
+```{r}
+# crew members plot
+crews_high_bounty %>%
+  left_join(
+    full_character_df %>% 
+      select(crew_name, crew_number) %>% 
+      distinct(),
+    by = "crew_name"
+  ) %>%
+  ggplot(aes(
+    x = crew_total_prime / 1e9,
+    size = crew_number,
+    y = crew_number,
+    color = crew_name,
+    label = crew_name 
+  )) +
+  geom_point(alpha = 0.7) +
+  geom_text(size = 3, vjust = -1) +
+  labs(
+    title = "Top 5 Crews: Total Bounty vs Crew Size",
+    x = "Total Bounty (Billions of Berries)",
+    y = "Crew Size",
+    color = "Crew"         
+  ) +
+  scale_size_continuous(range = c(5, 15), guide = "none")
+```
+
+
+## Captain vs Fighter Bounties 
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+library(kableExtra)
+characters_with_crews %>%
+  filter(job %in% c("Captain", "Fighter")) %>%
+  group_by(job) %>%
+  summarise(
+    avg_bounty = mean(bounty, na.rm = TRUE),
+    #maybe we can add a median here too
+    count = n()
+  ) %>%
+  kbl() %>%
+  kable_styling(bootstrap_options = "striped", full_width = F, position = "left")
+
+```
+
+
+# Devil Fruits
+
+## Why Study Devil Fruits?
+-   Known to be rare and powerful
+-   May influence strength and reputation
+-   We wanted to see how they appear in the data
+
+## Characters With vs Without Devil Fruits
+- Shows how many characters have Devil Fruits 
+- Majority of characters do not have one
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+full_character_df %>%
+  mutate(has_fruit = ifelse(is.na(devil_fruit), "No Fruit", "Has Fruit")) %>%
+  count(has_fruit) %>%
+  ggplot(aes(x = "", y = n, fill = has_fruit)) +
+  geom_col(width = 1) +
+  coord_polar(theta = "y") +
+  scale_fill_manual(values = c("Has Fruit" = "darkorchid", "No Fruit" = "slateblue")) +
+  labs(
+    title = "Characters with vs Without Devil Fruits",
+    fill = "Category"
+  )+ 
+  theme_minimal()
+```
+
+## Bar Graph (Correct Graph)
+-   Compared to the circle graph, this one is better
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+full_character_df %>%
+  mutate(has_fruit = ifelse(is.na(devil_fruit), "No Fruit", "Has Fruit")) %>%
+  count(has_fruit) %>%
+  ggplot(aes(x = has_fruit, y = n, fill = has_fruit)) +
+  geom_col() +
+  scale_fill_manual(values = c("Has Fruit" = "darkorchid", "No Fruit" = "slateblue")) +
+  geom_text(aes(label = n), vjust = -0.3) +
+  labs(
+    title = "Characters with vs Without Devil Fruits",
+    x = "Category",
+    y = "Number of Characters",
+    fill = "Category"
+  ) 
+```
+
+```{r include=FALSE}
+# creating fruit_counts
+fruit_counts <- full_character_df %>%
+  filter(!is.na(type)) %>%
+  count(type, sort = TRUE)
+
+```
+
+
+
+## Most Common Devil Fruit Types
+- Compares different types of Devil Fruits 
+- Some types appear more frequently than others
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+fruit_counts %>%
+  gt() %>%
+  tab_header(
+    title = "Devil Fruit Types",
+    subtitle = "Count of characters by fruit category"
+  ) %>%
+  cols_label(
+    type = "Fruit Type",
+    n = "Count"
+  ) %>%
+  fmt_number(columns = n, decimals = 0) %>%
+  tab_style(
+    style = list(
+      cell_fill(color = "azure"),
+      cell_text(weight = "bold")
+    ),
+    locations = cells_body(columns = n)
+  ) %>%
+  tab_options(
+    table.border.top.color = "azure",
+    table.border.top.width = px(3),
+    table.border.bottom.color = "azure",
+    table.border.bottom.width = px(3),
+    heading.align = "center"
+  )
+```
+
+
+
+## Most common DF types (in a plot)
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+ggplot(fruit_counts, 
+       aes(x = type, 
+           y = n, 
+           fill = type)) + geom_col() + geom_text(aes(label = n), vjust = -0.3, color = "navy") +
+  labs(
+  x = "Devil Fruit Type", 
+  y = "Total",
+  color = "Fruit Type", 
+  title = "Most Common Devil Fruit Types"
+) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Crews with Multiple Devil Fruit Users
+
+-   Shows crews with more than one user
+-   Highlights where Devil Fruits are more concentrated
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+crew_fruit_counts <- full_character_df %>%
+  filter(!is.na(devil_fruit), !is.na(crew_name)) %>%   # ← this removes NA
+  count(crew_name, sort = TRUE) %>%
+  filter(n > 1)
+
+
+
+ggplot(crew_fruit_counts, aes(x = reorder(crew_name, n), y = n, fill = n)) +
+  geom_col() +
+  geom_text(aes(label = n), hjust = -0.2) +
+  coord_flip()+
+  labs(
+    title = "Number of Devil Fruit Users per Crew",
+    x = "Crew",
+    y = "Number of Pirates"
+  ) +
+  theme(legend.position = "none")+ 
+  scale_fill_gradient(low = "lightyellow", high = "orange") 
+```
+
+## Do Devil Fruits Affect Bounty?
+
+-   Devil Fruits provide strong abilites
+-   Bounties reflect danger and influence
+-   Do these two relate?
+
+## Do Devil Fruit users have higher bounties?
+
+-   Compares bounty distribution between groups
+-   Median bounty is higher for devil fruit users
+-   Some non-users still have high bounties (outliers)
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(dplyr)
+library(ggplot2)
+
+bounty_df <- full_character_df %>%
+  mutate(has_fruit = ifelse(is.na(devil_fruit), "No Fruit", "Has Fruit")) %>%
+  filter(!is.na(bounty))
+
+
+ggplot(bounty_df, aes(x = has_fruit, y = bounty, fill = has_fruit)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  scale_fill_manual(values = c("Has Fruit" = "darkorchid", "No Fruit" = "plum2")) +
+  labs(
+    title = "Bounty Distribution (Log Scale): Devil Fruit Users vs Non-Users",
+    x = "Category",
+    y = "Bounty (log scale)"
+  ) 
+```
+
+## Average bounty of Devil Fruit users vs non-users?
+-   devil fruit users have a higher bounty average
+-   further supports data seen in the box plot
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(dplyr)
+library(ggplot2)
+
+full_character_df %>%
+  mutate(has_fruit = ifelse(is.na(devil_fruit), "No Fruit", "Has Fruit")) %>%
+  filter(!is.na(bounty)) %>%
+  group_by(has_fruit) %>%
+  summarise(avg_bounty = mean(bounty, na.rm = TRUE)) %>%
+  ggplot(aes(x = has_fruit, y = avg_bounty, fill = has_fruit)) +
+  geom_col() +
+  geom_text(aes(label = round(avg_bounty, 0)), vjust = -0.3) +
+  scale_fill_manual(values = c("Has Fruit" = "darkorchid", "No Fruit" = "slateblue")) +
+  labs(
+    title = "Average Bounty: Devil Fruit Users vs Non-Users",
+    x = "Category",
+    y = "Average Bounty"
+  ) +
+  theme(legend.position = "none")
+```
+
+## Highest bounty characters without Devil Fruits?
+-   Strength and influence are not limited to Devil Fruit powers
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+full_character_df %>%
+  filter(is.na(devil_fruit), !is.na(bounty)) %>%
+  arrange(desc(bounty)) %>%
+  head(5) %>%
+  ggplot(aes(x = reorder(name, bounty), y = bounty, fill = name)) +
+  geom_col() +
+  geom_text(aes(label = paste0(round(bounty/1e6), "M")), hjust = -0.2) + 
+  coord_flip() +
+  scale_fill_manual(values = c(
+    "Gol D. Roger" = "darkred",
+    "Shanks" = "firebrick",
+    "Roronoa Zoro" = "green4",
+    "Jinbe" = "skyblue2",
+    "Sanji" = "gold"
+  ))
+  labs(
+    title = "Highest Bounty Characters Without Devil Fruits",
+    x = "Character",
+    y = "Bounty"
+  ) +
+  theme(legend.position = "none")
+
+```
+
+
+
+# Islands by Region
+
+## East Blue vs North Blue
+```{r message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+locations_df
+
+blue_counts <- locations_df %>%
+  filter(sea_name %in% c("East Blue", "North Blue")) %>%
+  count(sea_name)
+```
+
+```{r}
+ggplot(blue_counts, aes(x = sea_name, y = n)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "Number of Islands: East Blue vs North Blue",
+    x = "Sea",
+    y = "Number of Islands"
+  )
+```
+
+## Island Distribution by Region
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+locations_df %>%
+  filter(sea_name != "", !is.na(sea_name)) %>%   # remove empty + real NA
+  count(sea_name) %>%
+  ggplot(aes(x = sea_name, y = n)) +
+  geom_col(fill = "darkcyan") +
+  geom_text(aes(label = n),
+            vjust = -0.3, 
+            size = 4) +
+  labs(
+    title = "How Many Islands Are in Each Region?",
+    x = "Region",
+    y = "Number of Islands"
+  ) 
+```
+
+# Characters
+
+## Characters in One Piece 
+- As we can see there are hundereds of characters
+in the One Piece Universe
+- We were limited on time, but here are some more plots!
+
+
+## Strawhat Crew Members
+```{r}
+characters_with_crews %>%
+  filter(crew_name == "Straw Hat Pirates") %>% 
+  summarise(total_members = n())
+
+```
+
+
+## Big Mom Crew vs Others
+```{r}
+crew_counts <- full_character_df %>%
+  filter(!is.na(crew_name)) %>%
+  count(crew_name, sort = TRUE) %>%
+  filter(n > 6)
+
+ggplot(crew_counts, aes(x = reorder(crew_name, n), y = n,
+                        fill = n)) +
+  geom_col() +
+  geom_text(aes(label = n), hjust = -0.2) +
+  coord_flip() +
+  scale_fill_gradient(low = "plum1", high = "magenta3") +
+  labs(
+    title = "Crew Size Comparison (Crews with More Than 6 Members)",
+    x = "Crew",
+    y = "Number of Members"
+  )+
+  theme(legend.position = "none")
+
+```
+
+
+## Captains
+```{r}
+
+characters_with_crews %>%
+  filter(job == "Captain") %>%
+  summarise(total_captains = n()) 
+
+```
+
+
+## Character Occupations
+```{r}
+library(dplyr)
+library(ggplot2)
+
+job_counts <- characters_with_crews %>%
+  filter(!is.na(job), job != "") %>%
+  count(job, sort = TRUE) %>%
+  slice_max(n, n = 10)
+
+ggplot(job_counts, aes(x = reorder(job, n), y = n, fill = n)) +
+  geom_col() +
+  geom_text(aes(label = n), hjust = -0.2) +
+  coord_flip() +
+  scale_fill_gradient(low = "plum1", high = "magenta3") +
+  labs(
+    title = "Most Common Occupations in Pirate Crews",
+    x = "Occupation",
+    y = "Number of Characters"
+  ) +
+  theme(legend.position = "none")
+
+
+
+#characters_with_crews %>%
+ # filter(job %in% c("Captain", "Navigator")) %>%
+  #distinct(name, job) %>%
+  #count(job, sort = T)
+
+#lets change this question up a bit, maybe include doctors, or just general crew members 
+```
+
+
+## Character Sizes
+What is the distribution of height among the characters?
+```{r}
+# boxplot
+full_character_df %>%
+  filter(!is.na(size)) %>%
+  ggplot(aes(x = size)) +
+  geom_boxplot(fill = "steelblue", alpha = 0.6) +
+  coord_cartesian(xlim = c(0, 1500)) +     # <-- sets max x to 2000 cm
+  labs(
+    title = "Distribution of Character Heights",
+    x = "Height (cm)",
+    y = ""
+  ) +
+  theme_minimal()
+```
+
+
+
+## Size Distribution (Density)
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+
+## size distribution (density)
+# density
+full_character_df %>%
+  filter(!is.na(size)) %>%
+  ggplot(aes(x = size)) +
+  geom_histogram(aes(y = ..density..), binwidth = 5,
+                 fill = "gray80", color = "gray40") +
+  geom_density(color = "blue", size = 1.2) +
+  labs(
+    title = "Character Size Distribution with Density Overlay",
+    x = "Size (cm)",
+    y = "Density"
+  )
+```
+
+
+
+## Devil Fruit VS Non-Devil Fruit
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+
+# fruit user vs non fruit users
+full_character_df %>%
+  mutate(has_fruit = !is.na(devil_fruit)) %>%
+  ggplot(aes(x = size, fill = has_fruit)) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Size Distribution: Fruit Users vs Non‑Users")
+```
+
+
+# Episodes
+
+## Why look at episodes? 
+- As mentioned One Piece has been releasing since 1999
+- At the moment of this presentation being made it has
+1157 episodes, with many more manga chapters
+- Along with the episodes there is arcs to the show
+
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# tidying episodes_df
+episodes_df <- jsonlite::fromJSON(url3, flatten = TRUE) %>%
+  as_tibble() %>%
+  mutate(
+    release_date = as.Date(release_date),
+    year = lubridate::year(release_date),
+    month = lubridate::month(release_date, label = TRUE),
+    decade = floor(year / 10) * 10
+  )
+
+library(stringi)
+
+episodes_df <- episodes_df %>%
+  # Remove NA saga rows first
+  filter(!is.na(saga.title)) %>%
+  
+  # Normalize accents so Î becomes I
+  mutate(
+    saga_clean = stri_trans_general(saga.title, "Latin-ASCII"),
+    saga.title = case_when(
+      str_detect(saga_clean, regex("ile des hommes-poissons", ignore_case = TRUE)) ~ 
+        "Fish-Man Island Saga",
+      TRUE ~ saga.title
+    )
+  ) %>%
+  select(-saga_clean)
+
+
+
+
+```
+
+
+## How many episodes were released per decade?
+
+```{r}
+episodes_df %>%
+  count(decade) %>%
+  ggplot(aes(x = factor(decade), y = n)) +
+  geom_segment(aes(x = factor(decade), 
+                   xend = factor(decade), 
+                   y = 0, 
+                   yend = n),
+               color = "plum1", 
+               linewidth = 1.2) +
+  geom_point(color = "magenta3", 
+             fill = "white", 
+             size = 6, 
+             stroke = 1.5) +
+  labs(
+    title = "Number of Episodes Released per Decade",
+    x = "Decade",
+    y = "Number of Episodes"
+  ) +
+  theme_light()
+
+```
+
+## Which Saga Has the Most Episodes?
+
+```{r}
+episodes_df %>%
+  count(saga.title) %>%
+  arrange(desc(n)) %>%
+  ggplot(aes(x = reorder(saga.title, n), y = n)) +
+  geom_col(fill = "deeppink3") +
+  coord_flip() +
+  labs(
+    title = "Number of Episodes per Saga",
+    x = "Saga",
+    y = "Episode Count"
+  ) +
+  theme_minimal(base_size = 14)
+
+```
+
+
+## Episodes per Year in each Saga
+```{r}
+episodes_df %>%
+  count(saga.title, year) %>%
+  ggplot(aes(x = year, y = n)) +
+  geom_col(fill = "purple4") +
+  facet_wrap(~ saga.title, scales = "free_y") +
+  labs(
+    title = "Episodes Released per Year by Saga",
+    x = "Year",
+    y = "Episode Count"
+  ) +
+  theme_minimal(base_size = 14)
+
+```
+
+
+## That is all!
+
+- Wish we had more time to work on more (and cooler) graphs
+- Working with this One Piece API was definitely an
+experience
+

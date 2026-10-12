@@ -1,0 +1,458 @@
+---
+title: "One Piece Data Science Project"
+author: "Jezel Valdez, John Esparragoza, Shelby Townnsend"
+date: "May 3rd, 2026"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+    theme: flatly
+    number_sections: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  results = "hide",
+  fig.align = "center"
+)
+
+library(tidyverse)
+library(jsonlite)
+library(lubridate)
+library(knitr)
+
+set.seed(518)
+```
+
+# Introduction
+
+## Project Motivation
+
+*One Piece* is one of the most popular and longest-running anime and manga series ever created. The world of *One Piece* contains hundreds of characters, pirate crews, islands, episodes, and supernatural powers, making it perfect for data analysis.
+
+The purpose of this project is to explore patterns within the *One Piece* universe using data science techniques learned throughout the semester. In particular, we investigate relationships between pirate crews, character bounties, devil fruits, islands, and episode releases.
+
+We really wanted to explore the world of One Piece with this data rather than just analysis because not everybody is familiar with the material. We begin by cleaning and preparing the datasets, then move into exploratory analysis to identify trends and relationships, before concluding with the major findings and limitations of the project.
+
+---
+
+# Data & Methods
+
+## Data Sources
+
+The datasets used in this project came from the following API:
+
+- https://api-onepiece.com/en/documentation
+
+We collected data from multiple endpoints, including:
+- Characters
+- Crews
+- Devil Fruits
+- Episodes
+- Locations
+
+The API provided rich information but required substantial cleaning before analysis.
+
+---
+
+## Importing the Data
+
+The code below imports all datasets directly from the API. Using API calls instead of manually downloaded files improves reproducibility because the report can automatically refresh whenever the data updates.
+
+```{r}
+# Character data
+url1 <- "https://api.api-onepiece.com/v2/characters/en"
+characters <- fromJSON(url1)
+characters_df <- as.data.frame(characters)
+
+# Location data
+url2 <- "https://api.api-onepiece.com/v2/locates/en"
+locations <- fromJSON(url2)
+locations_df <- as.data.frame(locations)
+
+# Episode data
+url3 <- "https://api.api-onepiece.com/v2/episodes/en"
+episodes <- fromJSON(url3)
+episodes_df <- as.data.frame(episodes)
+
+# Crew data
+url4 <- "https://api.api-onepiece.com/v2/crews/en"
+crews <- fromJSON(url4)
+crews_df <- as.data.frame(crews)
+
+# Devil fruit data
+url5 <- "https://api.api-onepiece.com/v2/fruits/en"
+fruits <- fromJSON(url5)
+fruits_df <- as.data.frame(fruits)
+```
+
+---
+
+# Data Cleaning
+
+## Cleaning Character Data
+
+The original datasets contained missing values, numbers stored as text, inconsistent formatting, and parts of the data in French.
+
+Before analysis, we converted important variables into usable numeric formats.
+
+```{r cleaning}
+characters_df <- characters_df %>%
+  mutate(
+    bounty = as.numeric(str_remove_all(bounty, "\\.")),
+    age = as.numeric(str_remove_all(age, "ans")),
+    size = as.numeric(str_remove_all(size, "cm"))
+  )
+```
+
+
+Data preparation note: numeric variables such as bounty, age, and size originally appeared as character strings. These were converted into numeric values so they could be analyzed statistically.
+
+---
+
+## Joining Crew Data
+
+To compare characters across pirate crews, we merged the crew dataset into the character dataset.
+
+```{r crew-join}
+# seperating crew df
+crew_full_df <- as.data.frame(characters_df$crew)
+
+# converting data types
+crew_full_df <- crew_full_df %>%
+  mutate(
+    total_prime = as.numeric(str_remove_all(total_prime, "\\.")),
+    number = as.numeric(str_remove_all(number, "\\."))
+  ) 
+
+# removed the crew & joined the actual crew df
+characters_with_crews <- bind_cols(
+  characters_df %>% select(-crew),
+  crew_full_df %>% rename(
+    crew_id = id,
+    crew_name = name,
+    crew_status = status,
+    crew_number = number,
+    crew_total_prime = total_prime)) %>% 
+    select(-description, -roman_name)
+```
+
+The merged dataset allows us to analyze how crew membership relates to bounty values, occupations, and other character traits.
+
+We also converted some of the language from French to English, as well as joining the devil fruit data with the rest of the data frame.
+```{r}
+# cleaning columns from devil fruit df
+dev_fruit_df <- as.data.frame(characters_with_crews$fruit) %>%
+  select(-roman_name, -filename, -technicalFile)   # removing unwanted columns
+
+# data cleaning before merging to character df
+# there is definitely a whole lot of french left to translate
+characters_with_crews <- characters_with_crews %>%
+  mutate(
+    crew_name = case_when(
+      crew_name == "The Chapeau de Paille crew" ~ "Straw Hat Pirates",
+      crew_name == "Armarda du Chapeau de Paille" ~ "Straw Hat Grand Fleet",
+      crew_name == "Baggy's Delivery" ~ "Buggy's Delivery",
+      crew_name == "Le Roux crew" ~ "Red Hair Pirates",
+      TRUE ~ crew_name
+    )
+  )
+
+# merging table
+full_character_df <- bind_cols(
+  characters_with_crews %>% select(-fruit),
+  dev_fruit_df %>%
+    rename(devil_fruit = name) %>%
+    select(-id)
+)
+
+# final df with all the columns we wanted
+full_character_df
+```
+---
+
+# Exploratory Data Analysis
+
+## Distribution of Character Bounties
+
+Character bounties are one of the most important measures of power and danger in the *One Piece* world.
+
+The histogram below shows the distribution of bounty values across characters.
+
+```{r bounty-distribution, fig.cap="Character bounty values are heavily right-skewed because only a small number of characters possess extremely large bounties."}
+characters_df %>%
+  filter(!is.na(bounty)) %>%
+  ggplot(aes(x = bounty)) +
+  geom_histogram(bins = 30, fill = "blue") +
+  labs(
+    title = "Distribution of Character Bounties",
+    x = "Bounty",
+    y = "Count"
+  ) +
+  theme_minimal()
+```
+
+The distribution is strongly right-skewed. Most characters have relatively low or moderate bounties, while a small number of elite pirates possess extremely high bounty values.
+
+This skewness suggests that using only the mean could be misleading, so median values are also important when comparing groups.
+
+---
+
+# Characters With and Without Bounties
+
+Not every character in the series is a pirate or criminal. The figure below compares how many characters have bounty values versus those without one.
+
+```{r}
+full_character_df %>%
+  mutate(has_bounty = if_else(is.na(bounty), "No", "Yes")) %>%
+  count(has_bounty) %>%
+  ggplot(aes(x = has_bounty, y = n, fill = has_bounty)) +
+  geom_col(binwidth = 2) +
+  scale_fill_manual(
+    values = c(
+      "Yes" = "darkcyan",   # characters WITH bounty
+      "No"  = "deeppink"      # characters WITHOUT bounty
+    )
+  ) +
+  geom_text(aes(label = n), vjust = -0.3)+
+  labs(
+    title = "How Many Characters Have a Bounty?",
+    x = "Has Bounty",
+    y = "Count"
+  )
+```
+
+The results show that many characters do not possess bounties. This makes sense because the dataset includes civilians, government members, and side characters in addition to pirates.
+
+
+---
+
+# Relationships Between Variables
+
+## Captains vs Fighters
+
+Next, we explored whether captains tend to have larger bounties than standard fighters.
+
+```{r captain-vs-fighter}
+captain_fighter_summary <- characters_with_crews %>%
+  filter(job %in% c("Captain", "Fighter")) %>%
+  group_by(job) %>%
+  summarise(
+    Average_Bounty = round(mean(bounty, na.rm = TRUE), 2),
+    Median_Bounty = round(median(bounty, na.rm = TRUE), 2),
+    Count = n()
+  )
+
+kable(
+  captain_fighter_summary,
+  caption = "Captains generally possess larger bounty values than fighters."
+)
+```
+
+Captains have substantially higher average bounty values than fighters. The median bounty is also higher for captains, which confirms that the pattern is not driven entirely by extreme outliers.
+
+---
+
+#Devil Fruit Analysis
+
+One of the main questions we wanted to explore was whether processing a
+devil fruit makes a character more dangerous in the One Piece world.
+Since bounty values represent how threatening a character is to the
+World Government , comparing bounty values between devil fruit users and
+non-devil fruit users provides insight into how important these powers
+are.
+
+```{r}
+bounty_df <- full_character_df %>%
+  mutate(has_fruit = ifelse(is.na(devil_fruit), "No Fruit", "Has Fruit")) %>%
+  filter(!is.na(bounty))
+
+
+ggplot(bounty_df, aes(x = has_fruit, y = bounty, fill = has_fruit)) +
+  geom_boxplot() + 
+  geom_jitter(width = 0.2, alpha = 0.5) +
+
+  scale_y_log10(labels = scales::label_number(scale = 1/1e6, suffix = "M")) +
+  scale_fill_manual(values = c("Has Fruit" = "darkorchid", "No Fruit" = "plum2")) +
+  labs(
+    title = "Bounty Distribution (Log Scale): Devil Fruit Users vs Non-Users",
+    x = "Category",
+    y = "Bounty (log scale)"
+  )
+```
+
+
+```{r}
+full_character_df %>%
+  mutate(has_fruit = ifelse(is.na(devil_fruit), "No Fruit", "Has Fruit")) %>%
+  filter(!is.na(bounty)) %>%
+  group_by(has_fruit) %>%
+  summarise(avg_bounty = mean(bounty, na.rm = TRUE)) %>%
+  ggplot(aes(x = has_fruit, y = avg_bounty, fill = has_fruit)) +
+  geom_col() +
+  geom_text(
+    aes(label = paste0(round(avg_bounty / 1e6, 1), "M")),
+    vjust = -0.3
+  ) +
+  scale_y_continuous(labels = scales::label_number(scale = 1/1e6, suffix = "M")) +
+  scale_fill_manual(values = c("Has Fruit" = "darkorchid", "No Fruit" = "slateblue")) +
+  labs(
+    title = "Average Bounty: Devil Fruit Users vs Non-Users",
+    x = "Category",
+    y = "Average Bounty (Millions)"
+  ) +
+  theme(legend.position = "none")
+```
+To investigate this, we compared both the average and median bounty
+values for characters with and without devil fruits. Using both
+statistics is important because bounty distributions are heavily skewed
+by a few extremely powerful characters.
+
+---
+
+# Island Analysis
+
+The *One Piece* world contains many different oceans and regions. We compared the number of islands in each major sea.
+
+```{r islands, fig.cap="The Grand Line and major seas contain significantly different numbers of islands, highlighting the scale of the One Piece world."}
+locations_df %>%
+  filter(sea_name != "", !is.na(sea_name)) %>%   # remove empty + real NA
+  count(sea_name) %>%
+  ggplot(aes(x = sea_name, y = n)) +
+  geom_col(fill = "darkcyan") +
+  geom_text(aes(label = n),
+            vjust = -0.3, 
+            size = 4) +
+  labs(
+    title = "How Many Islands Are in Each Region?",
+    x = "Region",
+    y = "Number of Islands"
+  ) 
+```
+
+Some regions contain substantially more islands than others, especially the Grand Line, which serves as the primary setting for much of the series.
+
+---
+
+# Episode Analysis
+
+## Episodes Released Per Decade
+
+The *One Piece* anime has aired continuously for decades. We analyzed how episode releases changed over time.
+
+```{r episode-decade, fig.cap="Episode production has remained consistently high across multiple decades of the anime's run."}
+episodes_df <- episodes_df %>%
+  mutate(
+    year = year(as.Date(release_date)),
+    decade = floor(year / 10) * 10
+  )
+
+episodes_df %>%
+  count(decade) %>%
+  ggplot(aes(x = factor(decade), y = n)) +
+  geom_col(fill = "purple") +
+  labs(
+    title = "Episodes Released Per Decade",
+    x = "Decade",
+    y = "Episodes"
+  ) +
+  theme_minimal()
+```
+
+The visualization demonstrates the remarkable longevity of the series. Few television franchises maintain such consistent production over multiple decades.
+
+---
+
+# Visualization Best Practices
+
+Throughout this report, we followed several visualization best practices:
+
+- Every graph includes clear axis labels
+- Each figure has a caption explaining the main takeaway
+- Colors were chosen for readability
+- Minimal themes reduce unnecessary clutter
+- Graph types match the structure of the data
+
+For example:
+- Histograms were used for distributions
+- Bar charts were used for category comparisons
+- Tables were used when exact values mattered
+
+---
+
+# Tables
+
+Tables are useful when readers need exact values rather than general patterns.
+
+```{r summary-table}
+summary_table <- characters_df %>%
+  summarise(
+    Total_Characters = n(),
+    Characters_With_Bounties = sum(!is.na(bounty)),
+    Average_Bounty = round(mean(bounty, na.rm = TRUE), 2)
+  )
+
+kable(
+  summary_table,
+  caption = "Summary statistics for the cleaned character dataset."
+)
+```
+
+Unlike raw data frame output, formatted tables improve readability and make important values easier to interpret.
+
+---
+
+# Common Pitfalls
+
+Several common issues appeared during this project:
+
+- Missing values
+- Inconsistent variable formats
+- Extreme outliers
+- Duplicate observations
+- API fields written in French
+
+One important lesson from this project is that code working in the console does not always mean it will work when knitting the report. Because RMarkdown runs in a fresh session, every required object and package must be created within the document itself.
+
+We also avoided:
+- printing raw data frames,
+- using plots without interpretation,
+- and manually typing numeric results into prose.
+
+---
+
+# Results & Discussion
+
+The analysis revealed several important patterns:
+
+- Character bounties are highly skewed
+- Captains consistently possess larger bounties than fighters
+- Devil fruit users are strongly associated with major characters
+- The *One Piece* world contains substantial regional variation in island counts
+- The anime has maintained long-term production consistency over decades
+
+These findings reflect how the *One Piece* universe is structured narratively. Powerful characters and major pirate crews dominate the story, while geography and long-running arcs contribute to the scale of the series.
+
+---
+
+# Conclusion
+
+This project demonstrated how data science techniques can be applied to entertainment media and fictional universes.
+
+Using *One Piece* datasets, we:
+- cleaned messy API data,
+- merged multiple datasets,
+- explored distributions and relationships,
+- created visualizations and tables,
+- and practiced reproducible reporting techniques in RMarkdown.
+
+One limitation of the project is that some API fields were incomplete or inconsistent. Additionally, bounty values are highly skewed, which can distort averages.
+
+Despite these limitations, the project successfully showed how exploratory data analysis and storytelling can transform raw data into meaningful insights.
+
+---
+
